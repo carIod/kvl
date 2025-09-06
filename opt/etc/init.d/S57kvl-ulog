@@ -1,0 +1,84 @@
+#!/bin/sh
+
+# shellcheck source=opt\bin\libs\env.sh
+. /opt/apps/kvl/bin/libs/env.sh
+
+# init.d скрипт для ulogd + ipset + fifo
+FIFO="/tmp/log/ulogd.pipe"       # должен на RAM диске быть
+ULOGD_BIN="/opt/sbin/ulogd"      # путь к ulogd
+ULOGD_CONF="/opt/etc/kvl/ulogd.conf" # конфиг ulogd
+
+pidfile="/var/run/ulogd_ipset.pid"
+reader_pidfile="/var/run/ulogd_ipset_reader.pid"
+
+start() {
+    echo -n "Starting ulogd_ipset...       "
+
+    # Создаём ipset, если нет
+    ipset list $IPSET_ULOG_NAME >/dev/null 2>&1 || \
+        ipset create $IPSET_ULOG_NAME hash:ip timeout 310 family inet maxelem 1024
+
+    # Создаём FIFO, если нет
+    [ -p "$FIFO" ] || mkfifo "$FIFO"
+
+    # Запускаем ulogd, если не запущен
+    if ! pgrep -f "$ULOGD_BIN.*$ULOGD_CONF" >/dev/null; then
+        $ULOGD_BIN -c "$ULOGD_CONF" &
+        echo $! > "$pidfile"
+    else
+        echo "ulogd already running"
+    fi
+
+    # Запускаем скрипт чтения из fifo, если не запущен
+    if ! [ -f "$reader_pidfile" ] || ! kill -0 "$(cat "$reader_pidfile")" 2>/dev/null; then
+        (
+        while read -r line; do
+            ip=$(echo "$line" | awk '/DST=/{split($0,a,"DST="); split(a[2],b); print b[1]}')
+            [ -n "$ip" ] && ipset -exist add $IPSET_ULOG_NAME "$ip" 2>/dev/null
+        done < "$FIFO"
+        ) &
+        echo $! > "$reader_pidfile"
+    else
+        echo "IPset reader already running"
+    fi
+
+    echo "Started"
+}
+
+stop() {
+    echo -n "Stopping ulogd_ipset...   "
+    # Останавливаем ulogd
+    if [ -f "$pidfile" ]; then
+        kill "$(cat $pidfile)" 2>/dev/null
+        rm -f "$pidfile"
+    fi
+    # Останавливаем читатель FIFO
+    if [ -f "$reader_pidfile" ]; then
+        kill "$(cat $reader_pidfile)" 2>/dev/null
+        rm -f "$reader_pidfile"
+    fi
+    echo "Stopped"
+}
+
+status() {
+    echo "Status:"
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+        echo "ulogd running, PID $(cat "$pidfile")"
+    else
+        echo "ulogd not running"
+    fi
+
+    if [ -f "$reader_pidfile" ] && kill -0 "$(cat "$reader_pidfile")" 2>/dev/null; then
+        echo "IPset reader running, PID $(cat "$reader_pidfile")"
+    else
+        echo "IPset reader not running"
+    fi
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    status) status ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" ;;
+esac

@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Если не удаление пакета то ничего не делаем
+[ "$1" = "remove" ] || exit 0
+
+/opt/apps/kvl/bin/kvl stop
+/opt/etc/init.d/S57kvl-ulog stop

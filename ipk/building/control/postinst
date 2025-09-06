@@ -1,0 +1,180 @@
+#!/bin/sh
+
+# shellcheck source=opt\bin\libs\env.sh
+. /opt/apps/kvl/bin/libs/env.sh
+
+# обозначаем список типов обрабатываемых VPN интерфейсов
+TYPES_INFACE='"OpenVPN","Wireguard","IKE","SSTP","PPPOE","L2TP","PPTP","Proxy"'
+INFACE_REQUEST="127.0.0.1:79/rci/show/interface"
+INFACE_PART_REQUEST="127.0.0.1:79/rci/interface"
+
+if [ -f /tmp/kvl-newinstall ]; then
+    NEW_INSTALL=1
+    rm -f /tmp/kvl-newinstall
+fi
+
+print_line(){ printf "%83s\n" | tr " " "="; }
+
+# Создание symlink если он отсутствует или неверный
+create_link() {
+    file="${1}"
+    to_lnk="${2}"
+    [ "$(readlink "$to_lnk" 2>/dev/null)" = "$file" ] || ln -sf "$file" "$to_lnk"  
+}
+
+# Получаем директорию текущего механизма обработки состояний подключений
+get_hook_dir(){
+    # Получаем основную версию ОС
+    local os_ver major_ver
+	os_ver="$(ndmc -c show version | grep -oP 'release:\s*\Kv?(\d+\.\d+)' | tr -d 'v')"
+	major_ver="$(echo "$os_ver" | cut -d. -f1)"
+
+    # Проверяем наличие нового каталога (может быть от Entware)
+    if [ -d "/opt/etc/ndm/iflayerchanged.d" ] && [ "$major_ver" -ge 4 ]; then
+        echo "iflayerchanged.d"
+    else
+        echo "ifstatechanged.d"
+    fi
+}
+
+# Перегружаем заданное соединение inface_cli
+reset_connection() {
+	local _inface_cli="$1"
+	local _time_delay="$2"
+	# получаем текущее состояние инф-са для возвращения его к исходному состоянию
+	state=$(curl -s "${INFACE_REQUEST%/}/${_inface_cli}" | jq -r '.state')
+	# в зависимости от состояния - включаем и выключаем или выключаем и включаем интерфейс
+	# для того, чтобы сработал наш хук в файле /opt/etc/ndm/ifstatechanged.d/100-save-inface_entware
+	if [ "${state}" = 'up' ]; then
+		curl -s -d '{"down":"true"}' "${INFACE_PART_REQUEST}/${_inface_cli}" &> /dev/null
+	else
+		curl -s -d '{"up":"true"}' "${INFACE_PART_REQUEST}/${_inface_cli}"  &> /dev/null
+	fi
+	sleep "${_time_delay}"
+	curl -s -d "{\"${state}\":\"true\"}" "${INFACE_PART_REQUEST}/${_inface_cli}" &> /dev/null
+	sleep 1 && return 0
+}
+
+update_interface_name_list() {
+    local inface_cli inface_list HOOK_INFACE_FILE
+	echo "Производим сканирование интерфейсов!"
+	#warning "Это займет время."
+	echo "Сохраняйте терпение и спокойствие!"
+	print_line
+	HOOK_INFACE_FILE=/opt/etc/ndm/$(get_hook_dir)/100-save-inface_entware
+	if ! [ -f "${HOOK_INFACE_FILE}" ]; then
+		echo "Устанавливаем файл для отслеживания хука "
+		ln -s /opt/apps/kvas/etc/ndm/ifcreated.d/100-kvl-iface-add "${HOOK_INFACE_FILE}" && when_ok "УСПЕШНО" || when_bad "ОШИБКА"
+	fi
+	# очищаем файл с именами интерфейсов
+	: > "${INFACE_NAMES_FILE}"
+	# получаем список ID интерфейсов в наличии на роутере через пробел
+	inface_list=$(
+		curl -s "127.0.0.1:79/rci/show/interface" \
+			| jq -r '.[] | select([.type]| inside(['"${TYPES_INFACE}"'])) | select(.defaultgw!=true) | .id' \
+			| tr '\n' ' ' | sed 's/[ ]$//g' \
+	)
+	# проходимся по каждому интерфейсу
+    
+	for inface_cli in ${inface_list}; do
+        # переподключаем соединение
+		reset_connection "$inface_cli" 3
+	done
+	rm -f "${HOOK_INFACE_FILE}"
+}
+
+
+# 1. Установка прав должны быть установлены, но навсякий случай
+chmod -R +x /opt/apps/kvl/etc/ndm/*
+chmod +x /opt/apps/kvl/bin/*
+chmod +x /opt/etc/init.d/S55kvl
+chmod +x /opt/etc/init.d/S57kvl-ulog
+
+# 2. Создание symlink с гарантированным созданием /opt/bin
+mkdir -p /opt/bin
+create_link "/opt/apps/kvl/bin/kvl" "/opt/bin/kvl"
+create_link "/opt/apps/kvl/bin/contract_ipset" "/opt/etc/cron.5mins/contract_ipset"
+# символьные ссылки на hook в ndm
+create_link "/opt/apps/kvl/etc/ndm/ifcreated.d/100-kvl-iface-add" "/opt/etc/ndm/ifcreated.d/100-kvl-iface-add"
+create_link "/opt/apps/kvl/etc/ndm/ifdestroyed.d/100-kvl-iface-del" "/opt/etc/ndm/ifdestroyed.d/100-kvl-iface-del"
+create_link "/opt/apps/kvl/etc/ndm/netfilter.d/100-kvl-vpn" "/opt/etc/ndm/netfilter.d/100-kvl-vpn"
+hook_dir=$(get_hook_dir); home_dir=/opt/apps/kvl
+create_link "${home_dir}/etc/ndm/${hook_dir}/100-kvl-vpn" "/opt/etc/ndm/${hook_dir}/100-kvl-vpn"
+
+# выполняем только при первой установке
+if [ -n "$NEW_INSTALL" ]; then 
+    if [ -f "/opt/etc/dnsmasq.conf" ]; then
+        mv -n "/opt/etc/dnsmasq.conf" "/opt/etc/dnsmasq.conf-save" && echo -e "Сохраняю исходный конфигурацию ${BLUE}dnsmasq${NOCL} в файле /opt/etc/dnsmasq.conf-save"
+    fi    
+    cp -f "/opt/apps/kvl/etc/conf/dnsmasq.conf" "/opt/etc/dnsmasq.conf"
+    if [ -f "/opt/etc/dnscrypt-proxy.toml" ]; then
+        mv -n "/opt/etc/dnscrypt-proxy.toml" "/opt/etc/dnscrypt-proxy.toml-save" && echo -e "Сохраняю исходный конфигурацию ${BLUE}dnscrypt-proxy2${NOCL} в файле /opt/etc/dnscrypt-proxy.toml-save"
+    fi
+    cp -f "/opt/apps/kvl/etc/conf/dnscrypt-proxy.toml" "/opt/etc/dnscrypt-proxy.toml"
+    update_interface_name_list
+    if ! [ -f "$KVL_LIST_WHITE" ]; then
+        touch "$KVL_LIST_WHITE"
+    fi
+	if ! /opt/sbin/dnsmasq -v 2>&1 | grep -q 'regex'; then
+		echo -e "\n${RED}Внимание!${NOCL}"
+		echo -e "\n${GREEN}Обнаружено, что dnsmasq не поддерживает regex(+ipset).${NOCL}"
+		echo -e "Для корректной работы требуется пакет dnsmasq-full с поддержкой wildcard"
+		arch=$(grep "^arch" /opt/etc/entware_release | cut -f2 -d"=")
+		BIN_URL=""
+		case "${arch}" in
+			mips)
+				BIN_URL="https://bin.entware.net/mipssf-k3.4/test/dnsmasq-full_2.86-9999_mips-3.4.ipk"
+				;;
+			mipsel)
+				BIN_URL="https://bin.entware.net/mipselsf-k3.4/test/dnsmasq-full_2.86-9999_mipsel-3.4.ipk"
+				;;
+			aarch64)
+				BIN_URL="https://bin.entware.net/aarch64-k3.10/test/dnsmasq-full_2.86-9999_aarch64-3.10.ipk"
+				;;
+			*)
+				echo -e "\n${RED}ОШИБКА${NOCL}"
+				echo "Неизвестная архитектура процессора: ${arch}!"
+				echo "Попробуйте найти свою архитектуру в https://bin.entware.net/ и установить пакет вручную."
+				echo "Без поддержки wildcard придется добавлять домены и поддомены точно и полным списком."
+				exit 1
+				;;
+		esac
+		
+		if [ -n "$BIN_URL" ]; then
+			echo -e "Будет установлен dnsmasq-full из test-ветки"
+			echo -e "\nУстановка займет некоторое время, пожалуйста, дождитесь завершения..."
+			PKG_FILE="dnsmasq-full.ipk"
+			echo -e "Скачиваем пакет: ${BLUE}$BIN_URL${NOCL}"
+			curl -L -o "$PKG_FILE" "$BIN_URL"
+			echo "Устанавливаем пакет через opkg..."
+			opkg install --force-reinstall "$PKG_FILE"
+			rm -f "$PKG_FILE"
+			echo -e "${YELLOW}Замораживаем${NOCL} обновление dnsmasq-full для предотвращения случайного обновления на версию без поддержки wildcard"
+    		opkg flag hold dnsmasq-full
+			echo -e "${GREEN}dnsmasq-full успешно установлен и заморожен.${NOCL}"
+		fi
+	fi	
+
+    kvl start
+    echo ""
+    echo -e "Далее Вам необходимо выполнить комманды:"
+    echo -e " 1. Переключить ДНС сервер: ${BLUE}kvl dns mode${NOCL}"
+	echo -e " 2. Выбрать рабочее соединение: ${BLUE}kvl vpn set${NOCL}"
+	echo -e " 3. Добавить сайты для маршрутизации через выбранное подключение: ${BLUE}kvl list add <имя_хоста>${NOCL}"
+	echo -e "Дополнительные команды можно посмотреть: ${BLUE}kvl help${NOCL}"
+    print_line
+    
+fi    
+
+
+#PLUGIN_DIR="/opt/app/kvl/plugins"
+#INDEX_FILE="$PLUGIN_DIR/index.json"
+#echo "[" > "$INDEX_FILE"
+#first=1
+#for path in "$PLUGIN_DIR"/*/descriptor.json; do
+#	[ -e "$path" ] || continue
+#	if [ "$first" -eq 0 ]; then echo "," >> "$INDEX_FILE"; fi
+#	cat "$path" >> "$INDEX_FILE"
+#	first=0
+#done
+#echo "]" >> "$INDEX_FILE"

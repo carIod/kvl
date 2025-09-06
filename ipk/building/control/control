@@ -1,0 +1,11 @@
+Package: kvl
+Version: 1.0.0
+Depends: libc, libssp, librt, libpthread, libpcre, jq, curl, knot-dig, nano-full, cron, bind-dig, dnsmasq-full, ipset, dnscrypt-proxy2, iptables, conntrack, ulogd, ulogd-mod-extra
+Source: /opt/home/carIod/kvl
+SourceName: kvl
+Section: utils
+SourceDateEpoch: 1757154620
+URL: no
+Architecture: all
+Installed-Size: 194919
+Description: минималистичный скрипт для роутеров Keenetic, позволяющий управлять списком сайтов и маршрутизировать трафик через безопасное подключение

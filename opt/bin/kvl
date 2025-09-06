@@ -1,0 +1,175 @@
+#!/bin/sh
+
+# ------------------------------------------------------------------------------
+#
+#	ПАКЕТ КВАС ЛАЙТ
+#
+# ------------------------------------------------------------------------------
+#	Данный файл служит для запуска пакета КВАС из командной строки
+#	Обработка получаемых аргументов скрипта
+#	$1 - команда для обработки
+#	$2 - аргумент для работы команды
+# ------------------------------------------------------------------------------
+#	Разработчик: carIod
+#	Дата создания: 10/06/2025
+#	Лицензия: Apache License 2.0
+#   github: https://github.com/carIod/kvas_light
+#	На основе https://github.com/qzeleza/kvas используется на условиях лицензии Apache 2.0.
+# ------------------------------------------------------------------------------
+# shellcheck source=opt\bin\libs\vpn.sh
+. /opt/apps/kvl/bin/libs/vpn.sh
+# shellcheck source=opt\bin\libs\report.sh
+. /opt/apps/kvl/bin/libs/report.sh
+
+#shellcheck source=opt\bin\libs\menu.sh
+#. /opt/apps/kvl/bin/libs/menu.sh
+
+
+
+usage() {
+    version
+    cat /opt/apps/kvl/etc/conf/kvl.help
+    exit 0
+}
+
+# Если запуск без параметров и в интерактивном режиме
+if [ -n "$_INTERACTIVE_" ] && [ -z "$1" ] ; then
+        echo "kvl : no command specified"
+        echo "Try 'kvl -h' or 'kvl --help' for more information."
+        exit 0
+fi
+
+cmd_plugin() {
+    local plugin_name="$2"
+    local plugin_path found_plugin plugins_json
+    plugins_json=$(get_plugins_info_json)
+    # Проверяем, является ли первый параметр частью имени плагина в plugins_json
+    if [ -n "$plugin_name" ]; then
+        found_plugin=$(echo "$plugins_json" | jq -r --arg name "$plugin_name" '.[] | select(.type == "plugin" and (.data.plugin | ascii_downcase | contains($name | ascii_downcase))) | .data.plugin')
+        if [ -n "$found_plugin" ]; then
+            # Плагин найден в plugins_json
+            plugin_path="${PLUGIN_DIR%/}/${found_plugin}.sh"
+            if [ ! -f "$plugin_path" ]; then
+                log "Плагин '$found_plugin' не найден в каталоге $PLUGIN_DIR" 3
+                return 1
+            fi
+            shift 2 # Убираем имя плагина из параметров
+            exec "$plugin_path" "$@"
+            exit 0
+        fi
+    fi
+
+    if [ "$PROVIDER" != "plugin" ]; then
+        log "Программа работает не в режиме плагина, но вы можете указать имя плагина перед параметрами 'kvl plugin <имя плагина> <параметры плагина>'" 2
+        return 1
+    fi
+
+    found_plugin="$(get_config_value PLUGIN_NAME)"
+    plugin_path="${PLUGIN_DIR%/}/${found_plugin}.sh"
+    if [ ! -f "$plugin_path" ]; then
+        log "Плагин '$found_plugin' не найден в каталоге $PLUGIN_DIR" 3
+        return 1
+    fi
+    color_echo "Текущий плагин: '$found_plugin'"
+    shift  # убрать "plugin"
+    #[ -z "$1" ] && set -- info
+
+    exec "$plugin_path" "$@"
+}
+
+edit_file() {
+    # Доступные редакторы
+    local editors=""
+    [ -x "$(command -v nano)" ] && editors="${editors}nano "
+    [ -x "$(command -v mcedit)" ] && editors="${editors}mcedit "
+    [ -x "$(command -v vi)" ] && editors="${editors}vi "
+    if [ -z "$editors" ]; then
+        echo "Редакторов не найдено."
+        return 1
+    fi
+    # Формируем меню
+    echo "Выберите редактор для файла $file:"
+    i=1
+    for ed in $editors; do
+        echo "$i) $ed"
+        i=$((i+1))
+    done
+    ask_user_to_choose $((i-1)) "Ваш выбор: " choice
+    # получаем выбранный элемент
+    editor=$(echo "$editors" | cut -d' ' -f"$choice")
+    # Считаем контрольную сумму до редактирования
+    if [ -f "$KVL_LIST_WHITE" ]; then
+        before_sum=$(md5sum "$KVL_LIST_WHITE" | awk '{print $1}')
+    else
+        before_sum=0
+    fi           
+    # Открываем редактор
+    $editor "$KVL_LIST_WHITE"
+    # Считаем контрольную сумму после редактирования
+    if [ -f "$KVL_LIST_WHITE" ]; then
+        after_sum=$(md5sum "$KVL_LIST_WHITE" | awk '{print $1}')
+    else
+        after_sum=0
+    fi
+    if [ "$before_sum" != "$after_sum" ]; then
+        echo "Файл изменён."
+        ip4_vpn__refresh_ipset_table restart
+       # [ -n "$on_change_cmd" ] && eval "$on_change_cmd"
+    else
+        echo "Файл небыл изменён."
+    fi
+}
+
+# Обработка флага -json
+if [ "$1" = "-json" ]; then
+    JSON_OUTPUT=1
+    shift
+else
+    JSON_OUTPUT=0
+fi
+
+case "${1}" in
+    list)
+        case "${2}" in
+            add)     cmd_list_add "$3" ;;
+            del)     cmd_list_del "$3" ;;
+            edit)    edit_file ;;
+            show)    cmd_list_show ;;
+            *)       color_echo "Использование: kvl list {add|del|edit|show}" ;;
+        esac            
+        ;;
+    vpn)
+        case "${2}" in
+            set)    cmd_vpn_choose_vpn "$3" ;;
+            *)   cmd_vpn_show_vpn ;;
+        esac            
+        ;;
+    dns)
+        case "${2}" in
+            mode)   cmd_vpn_dns_mode  "$3" ;;
+            status) cmd_report_show_status_dns ;;
+            redir)  cmd_vpn_redirect "$3" ;;
+            port) cmd_vpn_change_port_dns "$3" ;;
+            test) /opt/apps/kvl/bin/dns_test.sh ;;
+            *) color_echo "Использование: kvl dns {mode|status|test|port|redir}" ;;
+        esac            
+        ;;
+    start)
+        cmd_kvl_start &> /dev/null
+        ;;
+    restart)
+        cmd_kvl_restart &> /dev/null    
+        ;;
+    stop)
+         cmd_kvl_stop &> /dev/null  
+        ;;   
+    status)
+        cmd_get_status ;;    
+    plugin)
+        cmd_plugin "$@" ;;
+    help|/help|-help|--help|-h)
+        usage ;;        
+    *)      
+        color_echo "Команда ${BLUE}'$1'${NOCL} не известна, список доступных команд: ${BLUE}'kvl help'${NOCL}"
+        ;;
+esac

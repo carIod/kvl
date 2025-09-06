@@ -1,0 +1,42 @@
+#!/bin/sh
+
+# Если не удаление пакета то ничего не делаем
+[ "$1" = "remove" ] || exit 0
+
+ADGUARD_IPSET_FILE=/opt/etc/AdGuardHome/kvl.ipset
+DNSMASQ_IPSET_HOSTS=/opt/etc/kvl/dnsmasq.ipset
+GREEN="\033[1;32m";
+BLUE="\033[36m";
+NOCL="\033[m";
+
+print_line(){ printf "%83s\n" | tr " " "="; }
+
+rm -f "/opt/bin/kvl"
+rm -f  "/opt/etc/cron.5mins/contract_ipset"
+# символьные ссылки на hook в ndm
+rm -f  "/opt/etc/ndm/ifcreated.d/100-kvl-iface-add"
+rm -f  "/opt/etc/ndm/ifdestroyed.d/100-kvl-iface-del"
+rm -f  "/opt/etc/ndm/netfilter.d/100-kvl-vpn"
+rm -f  "/opt/etc/ndm/iflayerchanged.d/100-kvl-vpn"
+rm -f  "/opt/etc/ndm/ifstatechanged.d/100-kvl-vpn"
+# Обнуляем файлы конфигураций ДНС серверов по добавлению в ipset, так как список ipset пропадет после перезагрузки роутера и будут ошибки в ДНС серверах
+[ -f "$DNSMASQ_IPSET_HOSTS" ] && touch "$DNSMASQ_IPSET_HOSTS"
+[ -f "$ADGUARD_IPSET_FILE" ] && touch "$ADGUARD_IPSET_FILE"
+
+echo -e "Пакет удалён из системы."
+echo -e "Текущий DNS-сервер не изменён и продолжает работать в прежней конфигурации защищая ваши запросы."
+echo ""
+echo -e "Если вы хотите вернуться к стандартному DNS провайдера, выполните следующие шаги:"
+echo ""
+echo -e "    Удалите сторонние DNS-сервисы (если они установлены):"
+echo -e "        ${BLUE}opkg remove dnsmasq-full${NOCL}"
+echo -e "        ${BLUE}opkg remove dnscrypt-proxy2${NOCL}"
+echo -e "        ${BLUE}opkg remove adguardhome-go${NOCL}"
+echo ""
+echo -e "${RED}После удаления восстановите системный DNS роутера:${NOCL}"
+echo -e "Откройте веб-интерфейс роутера с приставкой /a (например: ${BLUE}http://192.168.0.1/a${NOCL})"
+echo -e "и выполните команды:"
+print_line
+echo -e "1. ${GREEN}no opkg dns-override${NOCL}      - включить встроенный DNS-сервер Keenetic,"
+echo -e "2. ${GREEN}system configuration save${NOCL} - сохранить изменения,"
+echo -e "3. ${GREEN}system reboot${NOCL}            - перезагрузить роутер."

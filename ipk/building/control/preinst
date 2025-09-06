@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case "$1" in
+  install)
+    # Новая установка
+    touch /tmp/kvl-newinstall
+    ;;
+  *)
+    rm -f /tmp/kvl-newinstall
+    ;;
+esac
+exit 0

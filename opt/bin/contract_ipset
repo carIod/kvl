@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# shellcheck source=opt\bin\libs\env.sh
+. /opt/apps/kvl/bin/libs/env.sh
+
+# Если ip активен то продлеваем ему жизнь на время:
+time_ex=1200
+
+# Провряем что таблицы ipset созданы
+list_ipset=$(ipset list -n)
+# Если $IPSET_ULOG_NAME НЕ найден — создаём
+echo "$list_ipset" | grep -qxF "$IPSET_ULOG_NAME" || ipset create $IPSET_ULOG_NAME hash:ip timeout 310 family inet maxelem 1024 2>/dev/null || true
+# если $IPSET_TABLE_NAME нет, выходим
+echo "$list_ipset" | grep -qxF "$IPSET_TABLE_NAME" || exit 1
+
+echo "Last start: $(date +%Y-%m-%d\ %H:%M:%S)" > /tmp/log/kvas_ttl.log
+start=$(cut -d' ' -f1 /proc/uptime)
+conntrack -L --mark "$FWMARK_NUM" 2>/dev/null | while read -r line; do
+  unset ip
+  for field in $line; do
+    case "$field" in
+      dst=*)
+        ip="${field#dst=}"
+        break
+        ;;
+    esac
+  done
+  [ -n "$ip" ] && ipset add "$IPSET_ULOG_NAME" "$ip" timeout 10 -exist 2>> /tmp/log/kvas_ttl.log
+done
+# Копируем все IP из IPSET_ULOG_NAME в unblock_set и удаляем скопированные ip из IPSET_ULOG_NAME
+ipset save "$IPSET_ULOG_NAME" | while read -r cmd _ ip _; do
+  [ "$cmd" = "add" ] || continue
+  ipset add "$IPSET_TABLE_NAME" "$ip" timeout "$time_ex" -exist 2>> /tmp/log/kvas_ttl.log
+  #ipset del "$IPSET_ULOG_NAME" "$ip" 2>> /tmp/log/kvas_ttl.log
+done
+
+end=$(cut -d' ' -f1 /proc/uptime)
+elapsed=$(awk -v s="$start" -v e="$end" 'BEGIN {printf "%.3f", e - s}')
+echo "Time taken: ${elapsed} seconds" >> /tmp/log/kvas_ttl.log

@@ -1,0 +1,60 @@
+#!/bin/sh
+# ------------------------------------------------------------------------------------------
+#
+# 	ПАКЕТ КВАС ЛАЙТ
+#
+# ------------------------------------------------------------------------------------------
+# 	Данный файл служит для
+#	В случае, если созданное подключение еще нет в списке интерфейсов,
+#	то добавляем его в файл /opt/etc/inface_equals "${INFACE_NAMES_FILE}"
+#   только когда поле global = false
+#   если поменялся description то изменяет строку
+# 	https://github.com/ndmsystems/packages/wiki/Opkg-Component
+#
+#   Структура файла:
+#   id|system_name|type|description
+# ------------------------------------------------------------------------------------------
+#	Разработчик: carIod
+#	Дата создания: 10/06/2025
+#	Лицензия: Apache License 2.0
+#   github: https://github.com/carIod/kvas_light
+#	На основе https://github.com/qzeleza/kvas используется на условиях лицензии Apache 2.0.
+# ------------------------------------------------------------------------------------------
+# Если не hook то выходим
+[ "${1}" != "hook" ] && exit 0
+# Проверка обязательных переменных
+if [ -z "$id" ] || [ -z "$system_name" ]; then
+    exit 1
+fi
+# если интерфейс отсутствует в списке то выходим
+#if [ -z "$(ip a show "$system_name")" ]; then
+#    exit 0
+#fi
+# Подключаем глобальные параметры
+#shellcheck source=opt\bin\libs\env.sh
+. /opt/apps/kvl/bin/libs/env.sh
+
+get_interface_data() {
+    local interface_id="$1"
+    # 1. Сначала пробуем параметризованный запрос (самый эффективный)
+    response=$(curl -s --max-time 2 "http://localhost:79/rci/show/interface?name=$interface_id")
+    # 2. Если ответ пустой, ищем по ID в полном списке
+    if [ -z "$response" ]; then
+        response=$(curl -s --max-time 2 "http://localhost:79/rci/show/interface" | \
+            jq --arg id "$interface_id" '.[] | select(.id == $id)')
+    fi
+    echo "$response"
+}
+
+if [ ! -f "$INFACE_NAMES_FILE" ]; then
+    : > "$INFACE_NAMES_FILE"
+fi
+current_line=$(grep "^$id|" "$INFACE_NAMES_FILE" 2>/dev/null)
+if [ -z "$current_line" ]; then
+    json=$(get_interface_data "$id" )
+    [ -z "$json" ] && exit 0
+    global=$(echo "$json" | jq -r 'if has("global") and .global == false then "false" else empty end')
+    [ "$global" != "false" ] && exit 0
+    type=$(echo "$json" | jq -r '.type')
+    echo "$id|$system_name|$type" >> "$INFACE_NAMES_FILE"
+fi

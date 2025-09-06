@@ -1,0 +1,36 @@
+#!/bin/sh
+
+# ------------------------------------------------------------------------------------------
+#
+# 	ПАКЕТ КВАС ЛАЙТ
+#
+# ------------------------------------------------------------------------------------------
+#	Данный файл служит для создания новых правил маркировки трафика по протоколу IPv4
+#	при использовании VPN подключения point-to-point.
+#	Они срабатывают при перезаписи правил в таблице netfilter
+#	https://github.com/ndmsystems/packages/wiki/Opkg-Component
+# ------------------------------------------------------------------------------
+#	Разработчик: carIod
+#	Дата создания: 10/06/2025
+#	Лицензия: Apache License 2.0
+#   github: https://github.com/carIod/kvas_light
+#	На основе https://github.com/qzeleza/kvas используется на условиях лицензии Apache 2.0.
+# ------------------------------------------------------------------------------
+# Пропускаем обработку, если тип подключения отличен от iptables
+[ "$type" = "ip6tables" ] && exit 0   # check the protocol type in backward-compatible way
+[ -f /tmp/kvl_config.sh ] || exit 0   # данный файл появляется только после инициализации программы, поэтому исполнять скрипт до этого момента бесполезно
+# shellcheck source=opt\bin\libs\iptab.sh
+. /opt/apps/kvl/bin/libs/iptab.sh
+#	маркируем правила
+
+case "${table}" in
+    mangle)
+        ip4_iptab__vpn_insert_mangle &>/dev/null
+        ;;
+    nat)
+        ip4_iptab__vpn_insert_nat &>/dev/null
+        ;;
+    filter)
+        ip4_iptab__vpn_insert_filter &>/dev/null
+        ;;
+esac
