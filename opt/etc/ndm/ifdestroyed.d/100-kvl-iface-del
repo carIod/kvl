@@ -10,7 +10,7 @@
 #	Разработчик: carIod
 #	Дата создания: 10/06/2025
 #	Лицензия: Apache License 2.0
-#   github: https://github.com/carIod/kvas_light
+#   github: https://github.com/carIod/kvl
 #	На основе https://github.com/qzeleza/kvas используется на условиях лицензии Apache 2.0.
 # ------------------------------------------------------------------------------------------
 [ "${1}" != "hook" ] && exit 0

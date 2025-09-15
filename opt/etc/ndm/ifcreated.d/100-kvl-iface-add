@@ -6,10 +6,9 @@
 # ------------------------------------------------------------------------------------------
 # 	Данный файл служит для
 #	В случае, если созданное подключение еще нет в списке интерфейсов,
-#	то добавляем его в файл /opt/etc/inface_equals "${INFACE_NAMES_FILE}"
+#	то добавляем его в файл /opt/etc/kvl/inface_equals точнее смотреть в "${INFACE_NAMES_FILE}"
 #   только когда поле global = false
-#   если поменялся description то изменяет строку
-# 	https://github.com/ndmsystems/packages/wiki/Opkg-Component
+#   # 	https://github.com/ndmsystems/packages/wiki/Opkg-Component
 #
 #   Структура файла:
 #   id|system_name|type|description
@@ -17,7 +16,7 @@
 #	Разработчик: carIod
 #	Дата создания: 10/06/2025
 #	Лицензия: Apache License 2.0
-#   github: https://github.com/carIod/kvas_light
+#   github: https://github.com/carIod/kvl
 #	На основе https://github.com/qzeleza/kvas используется на условиях лицензии Apache 2.0.
 # ------------------------------------------------------------------------------------------
 # Если не hook то выходим
