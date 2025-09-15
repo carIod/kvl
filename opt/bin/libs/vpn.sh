@@ -620,7 +620,7 @@ cmd_list_add() {
     local cidr_filter='^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
 	if  echo "$host" | grep -Eq "$ip_filter|$cidr_filter"; then
 	    # тогда это должен быть корректный IP/сеть
-    	if ! ipcalc -cs "$host" >/dev/null 2>&1; then
+    	if ! ipcalc -b "$host" >/dev/null 2>&1; then
         	report_json_or_console "error" "[]" "Неверный IP-адрес или диапазон: $host"
         	return 1
 		else
@@ -667,7 +667,7 @@ cmd_list_del() {
     local cidr_filter='^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
 	if  echo "$host" | grep -Eq "$ip_filter|$cidr_filter"; then
 	    # тогда это должен быть корректный IP/сеть
-    	if ! ipcalc -cs "$host" >/dev/null 2>&1; then
+    	if ! ipcalc -b "$host" >/dev/null 2>&1; then
         	report_json_or_console "error" "[]" "Неверный IP-адрес или диапазон: $host"
         	return 1
 		else
