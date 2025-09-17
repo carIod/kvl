@@ -3,6 +3,20 @@
 # shellcheck source=opt\bin\libs\env.sh
 . /opt/apps/kvl/bin/libs/env.sh
 
+IP_FILTER='[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
+REGEXP_IP_OR_RANGE="^(${IP_FILTER}|${IP_FILTER}-${IP_FILTER}|${IP_FILTER}/[0-9]{1,3})$"
+insert_static_ip_ipset(){
+	local line ip_adr
+	while IFS= read -r line || [ -n "${line}" ]; do
+		ip_adr=$(echo "${line}" | sed 's/#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/\*//g' | tr -d '[:space:]')
+		[ -z "${ip_adr}" ] && continue
+		# если строка IP, диапазон или маска; то добавляем напрямую и без ttl
+		if [[ ${ip_adr} =~ ${REGEXP_IP_OR_RANGE} ]]; then
+			/opt/sbin/ipset add "${IPSET_TABLE_NAME}" "${ip_adr}" timeout 0 -exist &>/dev/null || true
+		fi
+	done < "${KVL_LIST_WHITE}"
+}
+
 # Если ip активен то продлеваем ему жизнь на время:
 time_ex=1200
 
@@ -33,7 +47,8 @@ ipset save "$IPSET_ULOG_NAME" | while read -r cmd _ ip _; do
   ipset add "$IPSET_TABLE_NAME" "$ip" timeout "$time_ex" -exist 2>> /tmp/log/kvas_ttl.log
   #ipset del "$IPSET_ULOG_NAME" "$ip" 2>> /tmp/log/kvas_ttl.log
 done
-
+# Время постоянных ip адресов сбрасывается при подключениях, поэтому востанавливаем время повторной перезаписью, так быстрее чем проверять у каждого адреса в списке значения timeout
+insert_static_ip_ipset
 end=$(cut -d' ' -f1 /proc/uptime)
 elapsed=$(awk -v s="$start" -v e="$end" 'BEGIN {printf "%.3f", e - s}')
 echo "Time taken: ${elapsed} seconds" >> /tmp/log/kvas_ttl.log

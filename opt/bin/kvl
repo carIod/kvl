@@ -113,6 +113,8 @@ edit_file() {
     fi
     if [ "$before_sum" != "$after_sum" ]; then
         echo "Файл изменён."
+#TODO если ip адреса изменят, то старые ip не удалятся из списка. Нужно перед изменением сохранить ip, а если изменился файл то удалить то что было и внести новые
+        ip4_vpn__insert_static_ip_ipset
         ip4_vpn__refresh_ipset_table restart
        # [ -n "$on_change_cmd" ] && eval "$on_change_cmd"
     else

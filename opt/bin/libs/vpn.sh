@@ -93,22 +93,18 @@ ip4_vpn__insert_static_ip_ipset(){
 	#stage="${1}"
 	{
 		while read -r line || [ -n "${line}" ]; do
-			# пропускаем строки c минусами — это рекламные сайты
 			# пропускаем пустые строки # пропускаем строки с комментариями
-			[ "${line::1}" = "-" ] || [ -z "${line}" ] || [ "${line:0:1}" = "#" ] && continue
-
+			[ -z "${line}" ] || [ "${line:0:1}" = "#" ] && continue
 			# удаляем из строки комментарии - все что встречается после символа # и сам символ
 			# удаляем *
 			host=$(echo "${line}" | sed 's/#.*$//g' | tr -s ' ' | sed 's/\*//')
-
 			# если строка IP, диапазон или маска; то добавляем напрямую и без ttl
 			if echo "${host}" | grep -qE -- "${REGEXP_IP_OR_RANGE}"; then
 				/opt/sbin/ipset -exist add "${IPSET_TABLE_NAME}" "${host}" timeout 0 &>/dev/null || true
 			fi
 		done < "${KVL_LIST_WHITE}"
-
 	}
-	show_result $? "Заполняем ipset таблицу статическими ip адресами из защищенного списка" "УСПЕШНО" "ОШИБКА" 2
+	show_result $? "Заполняем ipset таблицу статическими ip адресами из защищенного списка" "УСПЕШНО" "ОШИБКА" 3
 }
 
 ip4_vpn__insert_all_vpn_rules(){
